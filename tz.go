@@ -23,7 +23,7 @@ import (
 //go:generate go get 4d63.com/embedfiles
 //go:generate embedfiles -out=zoneinfo.go -pkg=tz zoneinfo/
 
-func tzData(name string) ([]byte, bool) {
+func TZData(name string) ([]byte, bool) {
 	data, ok := files["zoneinfo/"+name]
 	return data, ok
 }
@@ -32,7 +32,7 @@ func LoadLocation(name string) (*time.Location, error) {
 	if name == "" || name == "UTC" || name == "Local" {
 		return time.LoadLocation(name)
 	}
-	if tzdata, ok := tzData(name); ok {
+	if tzdata, ok := TZData(name); ok {
 		return time.LoadLocationFromTZData(name, tzdata)
 	}
 	return nil, errors.New("unknown location " + name)
