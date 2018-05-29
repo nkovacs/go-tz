@@ -11,7 +11,7 @@
 // operating system.
 //
 // This package exists because of https://github.com/golang/go/issues/21881.
-package tz // import "4d63.com/tz"
+package tz
 
 import (
 	"errors"
