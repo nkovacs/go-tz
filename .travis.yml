@@ -2,7 +2,7 @@ language: go
 
 go:
   - stable
-  - oldstable
+#  - oldstable
   - master
 
 script:
