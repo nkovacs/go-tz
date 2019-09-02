@@ -1,7 +1,9 @@
 language: go
 
 go:
-  - "1.x"
+  - stable
+  - oldstable
+  - master
 
 script:
   - go test ./... -coverprofile=coverage.txt
