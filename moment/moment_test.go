@@ -1,6 +1,10 @@
 package moment
 
 import (
+	"encoding/json"
+	"io/ioutil"
+	"os"
+	"strings"
 	"testing"
 
 	tz "github.com/nkovacs/go-tz"
@@ -44,6 +48,69 @@ func TestPacked(t *testing.T) {
 			if mtz != c.expected {
 				t.Logf("expected: %v", c.expected)
 				t.Logf("actual: %v", mtz)
+				t.Fatalf("output differs from expected")
+			}
+		})
+	}
+}
+
+type MomentData struct {
+	Version string
+	Zones   []string
+}
+
+func TestMomentPacked(t *testing.T) {
+
+	f, err := os.Open("testdata/2019b.json")
+	if err != nil {
+		t.Error(err)
+	}
+	defer f.Close()
+	jsonS, err := ioutil.ReadAll(f)
+	if err != nil {
+		t.Error(err)
+	}
+	var data MomentData
+	err = json.Unmarshal(jsonS, &data)
+	if err != nil {
+		t.Error(err)
+	}
+
+	for _, zone := range data.Zones {
+		nameIdx := strings.Index(zone, "|")
+		popIdx := 0
+		for i := 0; i < 5; i++ {
+			if popIdx+1 > len(zone) {
+				popIdx = -1
+				break
+			}
+			addIdx := strings.Index(zone[popIdx:], "|")
+			if addIdx == -1 {
+				popIdx = -1
+				break
+			}
+			popIdx += addIdx + 1
+		}
+		expected := zone
+		if popIdx > 0 && popIdx <= len(expected) {
+			expected = expected[:popIdx-1]
+		}
+
+		name := zone[:nameIdx]
+		t.Run(name, func(t *testing.T) {
+			locData, ok := tz.TZData(name)
+			if !ok {
+				t.Fatalf("error loading timezone data")
+			}
+			l, err := tz.ParseLocation(name, locData)
+			if err != nil {
+				t.Fatalf("error parsing location: %s", err)
+			}
+
+			mtz := Packed(l)
+			if mtz != expected {
+				t.Logf("expected: %v", expected)
+				t.Logf("actual:   %v", mtz)
 				t.Fatalf("output differs from expected")
 			}
 		})

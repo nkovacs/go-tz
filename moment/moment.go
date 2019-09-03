@@ -10,6 +10,7 @@ import (
 )
 
 const digits = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+const alpha = -1 << 63 // math.MinInt64
 
 func toBase60(n int64) string {
 	s := ""
@@ -78,24 +79,46 @@ func Packed(l *tz.Location) string {
 	usedMap := make(map[int]int)
 	transitions := make([]tz.ZoneTrans, 0)
 
-	for _, trans := range l.Tx {
+	// cut off 64 bit dates to generate the same dates as momentjs timezone
+	// this is only necessary to match the data from momentjs
+	const alpha32 = -1 << 31
+	const omega32 = 1<<31 - 1
+
+	for i, trans := range l.Tx {
+		if i+1 < len(l.Tx) && l.Tx[i+1].When < alpha32 {
+			continue
+		}
+		if trans.When > omega32 {
+			break
+		}
 		deduped, ok := dedupMap[int(trans.Index)]
 		if !ok {
 			panic(fmt.Sprintf("zone not found: %v", trans.Index))
 		}
-		var newIndex uint8
 		if _, ok := usedIdxMap[deduped]; !ok {
 			usedIdx = append(usedIdx, deduped)
 			usedIdxMap[deduped] = struct{}{}
 			usedMap[deduped] = len(usedIdx) - 1
-			newIndex = uint8(usedMap[deduped])
-		} else {
-			newIndex = uint8(usedMap[deduped])
 		}
+		newIndex := uint8(usedMap[deduped])
 		transitions = append(transitions, tz.ZoneTrans{
 			When:  trans.When,
 			Index: newIndex,
 		})
+	}
+
+	// TODO: this is not always correct, see time.Location.lookupFirstZone in time/zoneinfo.go
+	if _, ok := usedIdxMap[0]; !ok && (len(transitions) == 0 || transitions[0].When > alpha32) {
+		// add transition from beginning of time
+		transitions = append([]tz.ZoneTrans{{
+			When:  alpha32,
+			Index: 0,
+		}}, transitions...)
+		usedIdx = append([]int{0}, usedIdx...)
+		usedIdxMap[0] = struct{}{}
+		for i := 1; i < len(transitions); i++ {
+			transitions[i].Index++
+		}
 	}
 
 	// keep only used zones
