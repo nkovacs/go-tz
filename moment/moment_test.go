@@ -45,7 +45,7 @@ func TestPacked(t *testing.T) {
 			}
 
 			mtz := Packed(l)
-			if mtz != c.expected {
+			if !tzMatches(mtz, c.expected) {
 				t.Logf("expected: %v", c.expected)
 				t.Logf("actual: %v", mtz)
 				t.Fatalf("output differs from expected")
@@ -59,9 +59,143 @@ type MomentData struct {
 	Zones   []string
 }
 
+func TestDavis(t *testing.T) {
+	locData, ok := tz.TZData("Antarctica/Davis")
+	if !ok {
+		t.Fatalf("error loading timezone data")
+	}
+	l, err := tz.ParseLocation("Antarctica/Davis", locData)
+	if err != nil {
+		t.Fatalf("error parsing location: %s", err)
+	}
+	t.Logf("location: %#v", l)
+	packed := Packed(l)
+	expected := "Antarctica/Davis|-00 +07 +05|0 -70 -50|01012121|-vyo0 iXt0 alj0 1D7v0 VB0 3Wn0 KN0"
+	t.Logf("actual: %v", packed)
+	t.Logf("expected: %v", expected)
+	if packed != expected {
+		t.Fatalf("output differs from expected")
+	}
+}
+
+type zone struct {
+	name string
+	offs string
+}
+
+func parseZones(parts []string) ([]zone, bool) {
+	names := strings.Split(parts[1], " ")
+	offs := strings.Split(parts[2], " ")
+	if len(names) != len(offs) {
+		return nil, false
+	}
+	zones := make([]zone, len(names))
+	for i, name := range names {
+		zones[i] = zone{
+			name: name,
+			offs: offs[i],
+		}
+	}
+	return zones, true
+}
+
+// tzMatches checks whether the two packed timezones match,
+// even if the order of the zones is not the same
+func tzMatches(actual, expected string) bool {
+	actualParts := strings.Split(actual, "|")
+	expectedParts := strings.Split(expected, "|")
+	if len(actualParts) < 5 || len(expectedParts) < 5 {
+		return false
+	}
+	if actualParts[0] != expectedParts[0] {
+		return false
+	}
+	// the transitions should be identical
+	if actualParts[4] != expectedParts[4] {
+		return false
+	}
+
+	expectedZones, ok := parseZones(expectedParts)
+	if !ok {
+		return false
+	}
+	actualZones, ok := parseZones(actualParts)
+	if !ok {
+		return false
+	}
+
+	if len(actualZones) != len(expectedZones) {
+		return false
+	}
+
+	// order maps the actual zone index to expected zone index
+	order := make([]int, len(expectedZones))
+	for i := range expectedZones {
+		found := false
+		for j := range actualZones {
+			if actualZones[j].name == expectedZones[i].name && actualZones[j].offs == expectedZones[i].offs {
+				order[j] = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	actualReordered := ""
+	for _, s := range actualParts[3] {
+		idx := strings.IndexRune(digits, s)
+		if idx < 0 || idx >= len(order) {
+			return false
+		}
+		actualReordered += toBase60(int64(order[idx]))
+	}
+
+	return actualReordered == expectedParts[3]
+}
+
+func TestRarotonga(t *testing.T) {
+	locData, ok := tz.TZData("Pacific/Rarotonga")
+	if !ok {
+		t.Fatalf("error loading timezone data")
+	}
+	l, err := tz.ParseLocation("Pacific/Rarotonga", locData)
+	if err != nil {
+		t.Fatalf("error parsing location: %s", err)
+	}
+	t.Logf("location: %#v", l)
+	packed := Packed(l)
+	expected := "Pacific/Rarotonga|-1030 -0930 -10|au 9u a0|012121212121212121212121212|lyWu IL0 1zcu Onu 1zcu Onu 1zcu Rbu 1zcu Onu 1zcu Onu 1zcu Onu 1zcu Onu 1zcu Onu 1zcu Rbu 1zcu Onu 1zcu Onu 1zcu Onu"
+	t.Logf("actual: %v", packed)
+	t.Logf("expected: %v", expected)
+	if !tzMatches(packed, expected) {
+		t.Fatalf("output differs from expected")
+	}
+}
+
+func TestNoumea(t *testing.T) {
+	locData, ok := tz.TZData("Pacific/Noumea")
+	if !ok {
+		t.Fatalf("error loading timezone data")
+	}
+	l, err := tz.ParseLocation("Pacific/Noumea", locData)
+	if err != nil {
+		t.Fatalf("error parsing location: %s", err)
+	}
+	t.Logf("location: %#v", l)
+	packed := Packed(l)
+	expected := "Pacific/Noumea|LMT +11 +12|-b5.M -b0 -c0|01212121|-2l9n5.M 2EqM5.M xX0 1PB0 yn0 HeP0 Ao0"
+	t.Logf("actual: %v", packed)
+	t.Logf("expected: %v", expected)
+	if !tzMatches(packed, expected) {
+		t.Fatalf("output differs from expected")
+	}
+}
+
 func TestMomentPacked(t *testing.T) {
 
-	f, err := os.Open("testdata/2019b.json")
+	f, err := os.Open("testdata/2019c.json")
 	if err != nil {
 		t.Error(err)
 	}
@@ -108,7 +242,7 @@ func TestMomentPacked(t *testing.T) {
 			}
 
 			mtz := Packed(l)
-			if mtz != expected {
+			if !tzMatches(mtz, expected) {
 				t.Logf("expected: %v", expected)
 				t.Logf("actual:   %v", mtz)
 				t.Fatalf("output differs from expected")

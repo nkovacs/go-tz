@@ -55,7 +55,9 @@ func packMinutes(sec int64) string {
 
 // Packed converts the location to moment-timezone.js packed format.
 func Packed(l *tz.Location) string {
+	// dedupZones are the deduplicated zones
 	dedupZones := make([]tz.Zone, 0)
+	// dedupMap maps the original zone index in transitions to the deduplicated zone's index
 	dedupMap := make(map[int]int)
 
 	for i, zone := range l.Zone {
@@ -74,9 +76,7 @@ func Packed(l *tz.Location) string {
 		dedupMap[i] = len(dedupZones) - 1
 	}
 
-	usedIdx := make([]int, 0)
-	usedIdxMap := make(map[int]struct{})
-	usedMap := make(map[int]int)
+	used := make(map[int]struct{})
 	transitions := make([]tz.ZoneTrans, 0)
 
 	// cut off 64 bit dates to generate the same dates as momentjs timezone
@@ -95,38 +95,63 @@ func Packed(l *tz.Location) string {
 		if !ok {
 			panic(fmt.Sprintf("zone not found: %v", trans.Index))
 		}
-		if _, ok := usedIdxMap[deduped]; !ok {
-			usedIdx = append(usedIdx, deduped)
-			usedIdxMap[deduped] = struct{}{}
-			usedMap[deduped] = len(usedIdx) - 1
+		used[deduped] = struct{}{}
+		newIndex := uint8(deduped)
+		when := trans.When
+		if when < alpha32 {
+			when = alpha32
 		}
-		newIndex := uint8(usedMap[deduped])
 		transitions = append(transitions, tz.ZoneTrans{
-			When:  trans.When,
+			When:  when,
 			Index: newIndex,
 		})
 	}
 
-	// TODO: this is not always correct, see time.Location.lookupFirstZone in time/zoneinfo.go
-	if _, ok := usedIdxMap[0]; !ok && (len(transitions) == 0 || transitions[0].When > alpha32) {
-		// add transition from beginning of time
+	if len(transitions) == 0 || transitions[0].When > alpha32 {
+		findFirstZone := func() int {
+			// case 1: if the first zone is unused, use it
+			if _, ok := used[0]; !ok {
+				return 0
+			}
+
+			// case 2: if the first transition is to a dst zone,
+			// find the first zone before it that is not dst
+			if len(transitions) > 0 && dedupZones[int(transitions[0].Index)].IsDST {
+				for zi := int(transitions[0].Index) - 1; zi >= 0; zi-- {
+					if !dedupZones[zi].IsDST {
+						return zi
+					}
+				}
+			}
+
+			// case 3: use the first one that is not dst
+			for zi := range dedupZones {
+				if !dedupZones[zi].IsDST {
+					return zi
+				}
+			}
+
+			// case 4: use the first zone
+			return 0
+		}
+
+		firstZone := findFirstZone()
+		used[firstZone] = struct{}{}
 		transitions = append([]tz.ZoneTrans{{
 			When:  alpha32,
-			Index: 0,
+			Index: uint8(firstZone),
 		}}, transitions...)
-		usedIdx = append([]int{0}, usedIdx...)
-		usedIdxMap[0] = struct{}{}
-		for i := 1; i < len(transitions); i++ {
-			transitions[i].Index++
-		}
 	}
 
 	// keep only used zones
 	usedZones := make([]tz.Zone, 0)
-
-	for _, idx := range usedIdx {
-		zone := dedupZones[idx]
-		usedZones = append(usedZones, zone)
+	// usedMap maps deduped idx to used idx
+	usedMap := make(map[int]int)
+	for i, zone := range dedupZones {
+		if _, ok := used[i]; ok {
+			usedZones = append(usedZones, zone)
+			usedMap[i] = len(usedZones) - 1
+		}
 	}
 
 	var abbrevMap []string
@@ -149,7 +174,7 @@ func Packed(l *tz.Location) string {
 			continue
 		}
 		prevZoneIdx = int(trans.Index)
-		indices = append(indices, toBase60(int64(trans.Index)))
+		indices = append(indices, toBase60(int64(usedMap[int(trans.Index)])))
 		if first {
 			first = false
 			continue
